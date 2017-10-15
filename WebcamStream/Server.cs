@@ -4,6 +4,7 @@ using System.Net;
 using System.Threading;
 using System.Windows.Forms;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Text;
 
@@ -55,9 +56,13 @@ namespace WebcamStream
                 s = myList.AcceptSocket();
                 output.AppendText("Connection accepted from " + s.RemoteEndPoint + "\n");
 
-                ObjectDelegate del = new ObjectDelegate(UpdateTextBox);
+                //ObjectDelegate del = new ObjectDelegate(UpdateTextBox);
+                ObjectDelegate img = new ObjectDelegate(UpdateImageBox);
+
                 Thread th = new Thread(new ParameterizedThreadStart(WorkThread));
-                th.Start(del);
+                //th.Start(del);
+                th.Start(img);
+
 
             }
             catch (Exception err)
@@ -87,6 +92,21 @@ namespace WebcamStream
 
         }
 
+        private void UpdateImageBox(object image)
+        {
+            if (form.InvokeRequired)
+            {
+                // slightly different now, as we dont need params
+                // we can just use MethodInvoker
+                ObjectDelegate method = new ObjectDelegate(UpdateImageBox);
+                form.Invoke(method, image);
+                return;
+            }
+
+            form.updateImage( (Bitmap) image);
+
+        }
+
         private void WorkThread(object obj)
         {
 
@@ -94,6 +114,7 @@ namespace WebcamStream
             {
 
                 ObjectDelegate del = (ObjectDelegate)obj;
+                ObjectDelegate img = (ObjectDelegate)obj;
 
                 while (true)
                 {
@@ -102,23 +123,69 @@ namespace WebcamStream
 
                     if (!s.Connected) continue;
 
-                    byte[] b = new byte[100];
-                    int k = s.Receive(b);
+                    //byte[] b = new byte[100];
+                    //int k = s.Receive(b);
 
-                    String rcv = "";
-                    for (int i = 0; i < k; i++)
-                        rcv += Convert.ToChar(b[i]);
+                    //String rcv = "";
+                    //for (int i = 0; i < k; i++)
+                    //    rcv += Convert.ToChar(b[i]);
 
-                    del.Invoke(rcv);
+                    //del.Invoke(rcv);
+
+                    this.SendImage();
+                    Bitmap image = this.ReceiveImage();
+
+                    img.Invoke(image);
 
                 }
 
             }
-            catch
+            catch (Exception e)
             {
-                output.AppendText("Error encountered in server workthread");
+                //output.AppendText("Error encountered in server workthread " + e.Message );
+                this.WorkThread(obj);
             }
 
+
+        }
+
+        private void SendImage()
+        {
+
+            Bitmap image = form.getImage();
+            byte[] bytes;
+
+            using ( MemoryStream ms = new MemoryStream() )
+            {
+                image.Save(ms, ImageFormat.Jpeg );
+                bytes = ms.ToArray();
+            }
+
+            byte[] userDataLen = BitConverter.GetBytes((Int32)bytes.Length);
+            s.Send(userDataLen);
+            s.Send(bytes);
+
+        }
+
+        private Bitmap ReceiveImage()
+        {
+
+            Bitmap image; 
+
+            byte[] b = new byte[4];
+            s.Receive(b);
+
+            int dataLen = BitConverter.ToInt32(b, 0);
+
+            byte[] img = new byte[dataLen];
+            s.Receive(img);
+
+            using (var ms = new MemoryStream(img))
+            {
+                image = new Bitmap(ms);
+            }
+
+            return image;
 
         }
 

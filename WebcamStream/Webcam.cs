@@ -16,14 +16,17 @@ namespace WebcamStream
 
         WebCameraControl webCameraControl1;
         ComboBox comboBox1;
+        TextBox output;
 
         public Webcam(
             WebCameraControl WebCameraControl1,
-            ComboBox comboBox1
+            ComboBox comboBox1,
+            TextBox output
         ) {
 
             this.comboBox1 = comboBox1;
             this.webCameraControl1 = WebCameraControl1;
+            this.output = output;
 
         }
 
@@ -49,8 +52,16 @@ namespace WebcamStream
 
         public void changeSource()
         {
-            ComboBoxItem i = (ComboBoxItem)comboBox1.SelectedItem;
-            webCameraControl1.StartCapture(i.Id);
+
+            try
+            {
+                ComboBoxItem i = (ComboBoxItem)comboBox1.SelectedItem;
+                webCameraControl1.StartCapture(i.Id);
+            }
+            catch( Exception e )
+            {
+                output.AppendText("Error starting capture " + e.Message + "\n");
+            }
         }
 
         public Bitmap GetCurrentImage()

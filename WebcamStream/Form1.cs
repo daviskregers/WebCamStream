@@ -43,7 +43,7 @@ namespace WebcamStream
 
         private void Form1_Load(object sender, EventArgs e)
         {
-            webcam = new Webcam(webCameraControl1, comboBox1); 
+            webcam = new Webcam(webCameraControl1, comboBox1, output); 
             webcam.loadSources();
         }
         
@@ -80,6 +80,19 @@ namespace WebcamStream
                 client.SendText(textBox1.Text);
                 textBox1.Text = "";
             }
+        }
+
+        public Bitmap getImage()
+        {
+            return webcam.GetCurrentImage();
+        }
+
+        public void updateImage(Bitmap image)
+        {
+
+            pictureBox1.Image = image;
+            pictureBox1.SizeMode = PictureBoxSizeMode.Zoom;
+
         }
 
     }
