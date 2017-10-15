@@ -43,8 +43,17 @@ namespace WebcamStream
 
         private void Form1_Load(object sender, EventArgs e)
         {
-            webcam = new Webcam(webCameraControl1, comboBox1, output); 
-            webcam.loadSources();
+
+            try
+            {
+                webcam = new Webcam(webCameraControl1, comboBox1, output);
+                webcam.loadSources();
+            }
+            catch( Exception ex )
+            {
+                output.AppendText("Error loading webcam service " + ex.Message + "\n");
+            }
+
         }
         
         private void Form1_FormClosed(object sender, FormClosedEventArgs e)
