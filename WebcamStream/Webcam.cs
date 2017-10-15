@@ -6,11 +6,12 @@ using System.Threading.Tasks;
 
 using WebEye.Controls.WinForms.WebCameraControl;
 using System.Windows.Forms;
+using System.Drawing;
 
 namespace WebcamStream
 {
 
-    class Webcam
+    public class Webcam
     {
 
         WebCameraControl webCameraControl1;
@@ -50,6 +51,11 @@ namespace WebcamStream
         {
             ComboBoxItem i = (ComboBoxItem)comboBox1.SelectedItem;
             webCameraControl1.StartCapture(i.Id);
+        }
+
+        public Bitmap GetCurrentImage()
+        {
+            return webCameraControl1.GetCurrentImage();
         }
 
         public void loadSources()

@@ -20,6 +20,8 @@ namespace WebcamStream
         TextBox output;
         Form1 form;
 
+        Stream stm;
+
         public Client(string address, string port, TextBox output, Form1 form)
         {
 
@@ -47,6 +49,8 @@ namespace WebcamStream
 
                 output.AppendText("Connecting to " + address + "\n");
                 tcpclnt.Connect(address, Int32.Parse(port));
+
+                stm = tcpclnt.GetStream();
 
                 ObjectDelegate del = new ObjectDelegate(UpdateTextBox);
 
@@ -84,18 +88,44 @@ namespace WebcamStream
         private void WorkThread(object obj)
         {
 
-            ObjectDelegate del = (ObjectDelegate)obj;
-
-            while (true)
+            try
             {
+                ObjectDelegate del = (ObjectDelegate)obj;
 
-                //if (stm == null) continue;
 
-                string rcv = "";
 
-                del.Invoke(rcv);
+                while (true)
+                {
 
+                    if (stm == null) continue;
+
+                    byte[] bb = new byte[100];
+                    int k = stm.Read(bb, 0, 100);
+
+                    String rcv = "";
+                    for (int i = 0; i < k; i++)
+                        rcv += Convert.ToChar(bb[i]);
+
+                    del.Invoke(rcv);
+
+                }
             }
+            catch
+            {
+                output.AppendText("Unexpected client error while receiving data \n");
+            }
+            
+        }
+
+        public void SendText(string text)
+        {
+
+            if (text == "") return;
+
+            ASCIIEncoding asen = new ASCIIEncoding();
+            byte[] ba = asen.GetBytes(text);
+            stm.Write(ba, 0, ba.Length);
+            output.AppendText("Client: " + text + " \n");
 
         }
 

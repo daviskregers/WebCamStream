@@ -12,7 +12,7 @@ namespace WebcamStream
 {
     public partial class Form1 : Form
     {
-        Webcam webcam;
+        public Webcam webcam;
         Client client;
         Server server;
         
@@ -50,6 +50,36 @@ namespace WebcamStream
         private void Form1_FormClosed(object sender, FormClosedEventArgs e)
         {
             webCameraControl1.Dispose();
+        }
+
+        private void button1_Click_1(object sender, EventArgs e)
+        {
+            this.SendChat();
+        }
+
+        private void textBox1_KeyUp(object sender, KeyEventArgs e)
+        {
+
+            if ((e.KeyCode & Keys.Enter) == Keys.Enter)
+            {
+                this.SendChat();
+            }
+
+        }
+
+        private void SendChat()
+        {
+
+            if(isServer.Checked)
+            {
+                server.SendText(textBox1.Text);
+                textBox1.Text = "";
+            }
+            else
+            {
+                client.SendText(textBox1.Text);
+                textBox1.Text = "";
+            }
         }
 
     }

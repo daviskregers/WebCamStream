@@ -3,6 +3,9 @@ using System.Net.Sockets;
 using System.Net;
 using System.Threading;
 using System.Windows.Forms;
+using System.Drawing;
+using System.IO;
+using System.Text;
 
 namespace WebcamStream
 {
@@ -87,17 +90,25 @@ namespace WebcamStream
         private void WorkThread(object obj)
         {
 
-            ObjectDelegate del = (ObjectDelegate)obj;
-
             try
             {
+
+                ObjectDelegate del = (ObjectDelegate)obj;
 
                 while (true)
                 {
 
+                    // Receive text
+
                     if (!s.Connected) continue;
 
-                    string rcv = "";
+                    byte[] b = new byte[100];
+                    int k = s.Receive(b);
+
+                    String rcv = "";
+                    for (int i = 0; i < k; i++)
+                        rcv += Convert.ToChar(b[i]);
+
                     del.Invoke(rcv);
 
                 }
@@ -108,6 +119,17 @@ namespace WebcamStream
                 output.AppendText("Error encountered in server workthread");
             }
 
+
+        }
+
+        public void SendText(string text)
+        {
+
+            if (text == "") return;
+            ASCIIEncoding asen = new ASCIIEncoding();
+
+            s.Send(asen.GetBytes(text));
+            output.AppendText("Server: " + text + " \n");
 
         }
 
