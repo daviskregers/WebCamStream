@@ -22,6 +22,13 @@ namespace WebcamStream
         TextBox output;
         Form1 form;
 
+        class Response
+        {
+            public Bitmap image;
+            public string text;
+            public int type;
+        }
+
         public Server(string address, string port, TextBox output, Form1 form)
         {
 
@@ -55,12 +62,11 @@ namespace WebcamStream
 
                 s = myList.AcceptSocket();
                 output.AppendText("Connection accepted from " + s.RemoteEndPoint + "\n");
-
-                //ObjectDelegate del = new ObjectDelegate(UpdateTextBox);
+                
                 ObjectDelegate img = new ObjectDelegate(UpdateImageBox);
 
                 Thread th = new Thread(new ParameterizedThreadStart(WorkThread));
-                //th.Start(del);
+                
                 th.Start(img);
 
 
@@ -74,37 +80,27 @@ namespace WebcamStream
 
         private delegate void ObjectDelegate(object obj);
 
-        private void UpdateTextBox(object obj)
-        {
-            // do we need to switch threads?
-            if (form.InvokeRequired)
-            {
-                // slightly different now, as we dont need params
-                // we can just use MethodInvoker
-                ObjectDelegate method = new ObjectDelegate(UpdateTextBox);
-                form.Invoke(method, obj);
-                return;
-            }
-
-            string text = (string)obj;
-
-            output.AppendText("Client: " + text + "\n");
-
-        }
-
-        private void UpdateImageBox(object image)
+        private void UpdateImageBox(object response)
         {
             if (form.InvokeRequired)
             {
                 // slightly different now, as we dont need params
                 // we can just use MethodInvoker
                 ObjectDelegate method = new ObjectDelegate(UpdateImageBox);
-                form.Invoke(method, image);
+                form.Invoke(method, response);
                 return;
             }
 
-            form.updateImage( (Bitmap) image);
+            Response res = (Response)response;
 
+            if(res.type == 1)
+            {
+                form.updateImage((Bitmap) res.image);
+            }
+            else if(res.type == 0) {
+                output.AppendText("Client: " + res.text + "\n");
+            }
+            
         }
 
         private void WorkThread(object obj)
@@ -113,27 +109,15 @@ namespace WebcamStream
             try
             {
 
-                ObjectDelegate del = (ObjectDelegate)obj;
                 ObjectDelegate img = (ObjectDelegate)obj;
 
                 while (true)
                 {
 
-                    // Receive text
-
                     if (!s.Connected) continue;
 
-                    //byte[] b = new byte[100];
-                    //int k = s.Receive(b);
-
-                    //String rcv = "";
-                    //for (int i = 0; i < k; i++)
-                    //    rcv += Convert.ToChar(b[i]);
-
-                    //del.Invoke(rcv);
-
                     this.SendImage();
-                    Bitmap image = this.ReceiveImage();
+                    Response image = this.ReceiveImage();
 
                     img.Invoke(image);
 
@@ -142,7 +126,12 @@ namespace WebcamStream
             }
             catch (Exception e)
             {
-                //output.AppendText("Error encountered in server workthread " + e.Message );
+                output.AppendText("Error encountered in server workthread " + e.Message + "\n");
+
+                byte[] err = BitConverter.GetBytes(-1);
+                s.Send(err);
+                Thread.Sleep(1000);
+               
                 this.WorkThread(obj);
             }
 
@@ -161,31 +150,77 @@ namespace WebcamStream
                 bytes = ms.ToArray();
             }
 
+            byte[] type = BitConverter.GetBytes((Int32) 1);
             byte[] userDataLen = BitConverter.GetBytes((Int32)bytes.Length);
+
             s.Send(userDataLen);
+            s.Send(type);
             s.Send(bytes);
 
         }
 
-        private Bitmap ReceiveImage()
+        public void Disconnect()
+        {
+            if (s.Connected) { 
+                s.Disconnect(true);
+            }
+        }
+
+        private Response ReceiveImage()
         {
 
-            Bitmap image; 
+            Response response = new Response();
 
             byte[] b = new byte[4];
             s.Receive(b);
 
-            int dataLen = BitConverter.ToInt32(b, 0);
+            if (BitConverter.ToInt32(b, 0) == -1) return null;
+            
+            byte[] type = new byte[4];
+            s.Receive(type);
 
-            byte[] img = new byte[dataLen];
-            s.Receive(img);
+            if (BitConverter.ToInt32(type, 0) == -1) return null;
 
-            using (var ms = new MemoryStream(img))
+            //output.AppendText("got response with type " + BitConverter.ToInt32(type, 0).ToString() + "\n");
+
+            if (BitConverter.ToInt32(type, 0) == 1) {
+
+                Bitmap image;
+
+                int dataLen = BitConverter.ToInt32(b, 0);
+
+                byte[] img = new byte[dataLen];
+                s.Receive(img);
+
+                if (BitConverter.ToInt32(img, 0) == -1) return null;
+
+                using (var ms = new MemoryStream(img))
+                {
+                    image = new Bitmap(ms);
+                }
+
+                response.image = image;
+                response.type = 1;
+
+            }
+            else
             {
-                image = new Bitmap(ms);
+                int dataLen = BitConverter.ToInt32(b, 0);
+
+                byte[] text = new byte[dataLen];
+                s.Receive(text);
+
+                if (BitConverter.ToInt32(text, 0) == -1) return null;
+
+                String rcv = "";
+                for (int i = 0; i < text.Length; i++)
+                    rcv += Convert.ToChar(text[i]);
+
+                response.text = rcv;
+                response.type = 0;
             }
 
-            return image;
+            return response;
 
         }
 
@@ -194,8 +229,15 @@ namespace WebcamStream
 
             if (text == "") return;
             ASCIIEncoding asen = new ASCIIEncoding();
+            
+            byte[] bytes = asen.GetBytes(text);
+            byte[] type = BitConverter.GetBytes((Int32) 0);
+            byte[] userDataLen = BitConverter.GetBytes((Int32)bytes.Length);
 
-            s.Send(asen.GetBytes(text));
+            s.Send(userDataLen);
+            s.Send(type);
+            s.Send(bytes);
+
             output.AppendText("Server: " + text + " \n");
 
         }

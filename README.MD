@@ -10,7 +10,7 @@ Written for an a course work assignment in "Graphics in client-server environmen
 - ~~Accept connections~~
 - ~~Stream webcam frames~~
 - ~~Fix an issue where there is an error thrown if the default webcam is being already used on startup~~
-- Add option to text chat
+- ~~Add option to text chat~~
 
 **DEPENDENCIES:**
 - WebEye.Controls.Winforms.WebCameraControl

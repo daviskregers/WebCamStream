@@ -15,6 +15,8 @@ namespace WebcamStream
         public Webcam webcam;
         Client client;
         Server server;
+
+        bool connected = false;
         
         private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
         {
@@ -26,11 +28,13 @@ namespace WebcamStream
 
             if(isServer.Checked)
             {
+                if(server != null) server.Disconnect();
                 server = new Server(address.Text, port.Text, output, this);
 
             }
             else
             {
+                if (client != null) client.Disconnect();
                 client = new Client(address.Text, port.Text, output, this);
             }
 
@@ -59,6 +63,16 @@ namespace WebcamStream
         private void Form1_FormClosed(object sender, FormClosedEventArgs e)
         {
             webCameraControl1.Dispose();
+
+            if (isServer.Checked)
+            {
+                server.Disconnect();
+            }
+            else
+            {
+                client.Disconnect();
+            }
+
         }
 
         private void button1_Click_1(object sender, EventArgs e)

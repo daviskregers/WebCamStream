@@ -16,12 +16,18 @@ namespace WebcamStream
     class Client
     {
 
+        class Response
+        {
+            public Bitmap image;
+            public string text;
+            public int type;
+        }
+
         TcpClient tcpclnt;
         string address;
         string port;
         TextBox output;
         Form1 form;
-        bool continueThreads;
         Stream stm;
 
         public Client(string address, string port, TextBox output, Form1 form)
@@ -31,9 +37,7 @@ namespace WebcamStream
             this.port = port;
             this.output = output;
             this.form = form;
-
-            this.continueThreads = true;
-
+            
             tcpclnt = new TcpClient();
 
             if (port == "")
@@ -55,8 +59,7 @@ namespace WebcamStream
                 tcpclnt.Connect(address, Int32.Parse(port));
 
                 stm = tcpclnt.GetStream();
-
-                ObjectDelegate del = new ObjectDelegate(UpdateTextBox);
+                
                 ObjectDelegate img = new ObjectDelegate(UpdateImageBox);
 
                 Thread th = new Thread(new ParameterizedThreadStart(WorkThread));
@@ -73,37 +76,28 @@ namespace WebcamStream
 
         private delegate void ObjectDelegate(object obj);
 
-        private void UpdateTextBox(object obj)
-        {
-            // do we need to switch threads?
-            if (form.InvokeRequired)
-            {
-                // slightly different now, as we dont need params
-                // we can just use MethodInvoker
-                ObjectDelegate method = new ObjectDelegate(UpdateTextBox);
-                form.Invoke(method, obj);
-                return;
-            }
 
-            string text = (string)obj;
-
-            output.AppendText("Server: " + text + "\n");
-
-        }
-
-
-        private void UpdateImageBox(object image)
+        private void UpdateImageBox(object response)
         {
             if (form.InvokeRequired)
             {
                 // slightly different now, as we dont need params
                 // we can just use MethodInvoker
                 ObjectDelegate method = new ObjectDelegate(UpdateImageBox);
-                form.Invoke(method, image);
+                form.Invoke(method, response);
                 return;
             }
 
-            form.updateImage((Bitmap)image);
+            Response res = (Response)response;
+
+            if (res.type == 1)
+            {
+                form.updateImage((Bitmap)res.image);
+            }
+            else if (res.type == 0)
+            {
+                output.AppendText("Server: " + res.text + "\n");
+            }
 
         }
 
@@ -119,15 +113,22 @@ namespace WebcamStream
                     if (stm == null) continue;
 
                     this.SendImage();
-                    Bitmap image = this.ReceiveImage();
+                    Response image = this.ReceiveImage();
 
                     img.Invoke(image);
+
+                    Thread.Sleep(50);
 
                 }
             }
             catch (Exception e)
             {
-                //output.AppendText("unexpected client error while receiving data \n" + e.Message + "\n");
+                output.AppendText("unexpected client error while receiving data \n" + e.Message + "\n");
+
+                byte[] err = BitConverter.GetBytes(-1);
+                stm.Write(err, 0, err.Length);
+                Thread.Sleep(1000);
+
                 this.WorkThread(obj);
             }
 
@@ -146,32 +147,81 @@ namespace WebcamStream
             }
 
             byte[] userDataLen = BitConverter.GetBytes((Int32)bytes.Length);
+            byte[] userDatType = BitConverter.GetBytes((Int32) 1 );
 
             stm.Write(userDataLen, 0, userDataLen.Length);
+            stm.Write(userDatType, 0, userDatType.Length);
             stm.Write(bytes, 0, bytes.Length);
 
         }
 
-        private Bitmap ReceiveImage()
+        public void Disconnect()
+        {
+            if(tcpclnt.Connected) { 
+                stm.Close();
+                stm.Dispose();
+                tcpclnt.Close();
+                tcpclnt.Dispose();
+            }
+        }
+
+        private Response ReceiveImage()
         {
 
-            Bitmap image;
+            Response response = new Response();
 
             byte[] readMsgLen = new byte[4];
             stm.Read(readMsgLen, 0, 4);
+
+            if (BitConverter.ToInt32(readMsgLen, 0) == -1) return null;
+
+            byte[] type = new byte[4];
+            stm.Read(type, 0, 4);
+
+            if (BitConverter.ToInt32(type, 0) == -1) return null;
+
+            //output.AppendText("got response with type " + BitConverter.ToInt32(type, 0).ToString() + "\n");
+
+            if (BitConverter.ToInt32(type, 0) == 1)
+            {
+
+                Bitmap image;
+
+                int dataLen = BitConverter.ToInt32(readMsgLen, 0);
+
+                byte[] readMsgData = new byte[dataLen];
+                stm.Read(readMsgData, 0, dataLen);
+
+                if (BitConverter.ToInt32(readMsgData, 0) == -1) return null;
+
+                using (var ms = new MemoryStream(readMsgData))
+                {
+                    image = new Bitmap(ms);
+                }
+
+                response.image = image;
+                response.type = 1;
+
+            }
+            else
+            {
+                int dataLen = BitConverter.ToInt32(readMsgLen, 0);
+
+                byte[] text = new byte[dataLen];
+                stm.Read(text, 0, dataLen);
+
+                if (BitConverter.ToInt32(text, 0) == -1) return null;
+
+                String rcv = "";
+                for (int i = 0; i < text.Length; i++)
+                    rcv += Convert.ToChar(text[i]);
+
+                response.text = rcv;
+                response.type = 0;
+            }
             
 
-            int dataLen = BitConverter.ToInt32( readMsgLen, 0);
-
-            byte[] readMsgData = new byte[dataLen];
-            stm.Read(readMsgData, 0, dataLen);
-
-            using (var ms = new MemoryStream(readMsgData))
-            {
-                image = new Bitmap(ms);
-            }
-
-            return image;
+            return response;
         }
 
         public void SendText(string text)
@@ -185,10 +235,9 @@ namespace WebcamStream
             byte[] userDataType = BitConverter.GetBytes( (Int32) 0 );
 
             stm.Write(userDataLen, 0, userDataLen.Length);
+            stm.Write(userDataType, 0, userDataType.Length);
             stm.Write(bytes, 0, bytes.Length);
-            
-            
-            
+
             output.AppendText("Client: " + text + " \n");
 
         }
@@ -196,7 +245,6 @@ namespace WebcamStream
         ~Client()
         {
             tcpclnt.Dispose();
-            continueThreads = false;
         }
 
 
