@@ -21,6 +21,7 @@ namespace WebcamStream
         string port;
         TextBox output;
         Form1 form;
+        const int packetSize = 10000;
 
         class Response
         {
@@ -39,13 +40,13 @@ namespace WebcamStream
 
             if (port == "")
             {
-                output.AppendText("Please provide the server port \n");
+                output.AppendText("\nPlease provide the server port \n");
                 return;
             }
 
             if (address == "")
             {
-                output.AppendText("Please provide the server IP \n");
+                output.AppendText("\nPlease provide the server IP \n");
                 return;
             }
 
@@ -56,24 +57,32 @@ namespace WebcamStream
                 myList = new TcpListener(ipAd, Int32.Parse(port));
                 myList.Start();
 
-                output.AppendText("The server is running at port " + port + "... \n");
-                output.AppendText("The local End point is: " + myList.LocalEndpoint + "\n");
-                output.AppendText("Waiting for a connection..... \n ");
+                output.AppendText("\nThe server is running at port " + port + "... \n");
+                output.AppendText("\nThe local End point is: " + myList.LocalEndpoint + "\n");
+                output.AppendText("\nWaiting for a connection..... \n ");
 
                 s = myList.AcceptSocket();
-                output.AppendText("Connection accepted from " + s.RemoteEndPoint + "\n");
-                
+
+                s.ReceiveBufferSize = packetSize;
+                s.SendBufferSize = packetSize;
+
+                output.AppendText("\nConnection accepted from " + s.RemoteEndPoint + "\n");
+
+                byte[] check = BitConverter.GetBytes((Int32)13371337);
+                System.Array.Resize(ref check, packetSize);
+                s.Send(check, packetSize, SocketFlags.None);
+
                 ObjectDelegate img = new ObjectDelegate(UpdateImageBox);
 
                 Thread th = new Thread(new ParameterizedThreadStart(WorkThread));
-                
+
                 th.Start(img);
 
 
             }
             catch (Exception err)
             {
-                output.AppendText("An error occured: " + err.ToString() + "\n");
+                output.AppendText("\nAn error occured: " + err.ToString() + "\n");
             }
 
         }
@@ -93,14 +102,17 @@ namespace WebcamStream
 
             Response res = (Response)response;
 
-            if(res.type == 1)
+            if (res == null) return;
+
+            if (res.type == 1)
             {
-                form.updateImage((Bitmap) res.image);
+                form.updateImage((Bitmap)res.image);
             }
-            else if(res.type == 0) {
-                output.AppendText("Client: " + res.text + "\n");
+            else if (res.type == 0)
+            {
+                output.AppendText("\n Client: " + res.text + " \n");
             }
-            
+
         }
 
         private void WorkThread(object obj)
@@ -119,49 +131,79 @@ namespace WebcamStream
                     this.SendImage();
                     Response image = this.ReceiveImage();
 
-                    img.Invoke(image);
+                    if (image != null)
+                    {
+                        Console.WriteLine("Image not null");
+                        img.Invoke(image);
+                    }
+                    else
+                    {
+                        Console.WriteLine("Image null");
+                    }
+
+                    Thread.Sleep(500);
 
                 }
 
             }
             catch (Exception e)
             {
-                output.AppendText("Error encountered in server workthread " + e.Message + "\n");
+                //output.AppendText("Error encountered in server workthread " + e.Message + "\n");
 
-                byte[] err = BitConverter.GetBytes(-1);
-                s.Send(err);
-                Thread.Sleep(1000);
-               
-                this.WorkThread(obj);
+                //byte[] err = BitConverter.GetBytes(-1);
+                //s.Send(err);
+                Thread.Sleep(500);
+                this.WorkThread(null);
             }
 
 
+        }
+
+        private static Bitmap ResizeBitmap(Bitmap sourceBMP, int width, int height)
+        {
+            Bitmap result = new Bitmap(width, height);
+            using (Graphics g = Graphics.FromImage(result))
+                g.DrawImage(sourceBMP, 0, 0, width, height);
+            return result;
         }
 
         private void SendImage()
         {
 
             Bitmap image = form.getImage();
+            image = ResizeBitmap(image, 320, 240);
             byte[] bytes;
 
-            using ( MemoryStream ms = new MemoryStream() )
+            using (MemoryStream ms = new MemoryStream())
             {
-                image.Save(ms, ImageFormat.Jpeg );
+                image.Save(ms, ImageFormat.Jpeg);
                 bytes = ms.ToArray();
             }
 
-            byte[] type = BitConverter.GetBytes((Int32) 1);
+            byte[] type = BitConverter.GetBytes((Int32)1);
             byte[] userDataLen = BitConverter.GetBytes((Int32)bytes.Length);
 
-            s.Send(userDataLen);
-            s.Send(type);
-            s.Send(bytes);
+            Console.WriteLine("WEBCAM LENGTH " + bytes.Length);
+
+            byte[] check = BitConverter.GetBytes((Int32)13371337);
+
+            System.Array.Resize(ref check, packetSize);
+            System.Array.Resize(ref bytes, packetSize);
+            System.Array.Resize(ref type, packetSize);
+            System.Array.Resize(ref userDataLen, packetSize);
+
+            s.Send(check, packetSize, SocketFlags.None);
+            s.Send(userDataLen, packetSize, SocketFlags.None);
+            s.Send(type, packetSize, SocketFlags.None);
+            s.Send(bytes, packetSize, SocketFlags.None);
+
 
         }
 
         public void Disconnect()
         {
-            if (s.Connected) { 
+            if (s.Connected)
+            {
                 s.Disconnect(true);
             }
         }
@@ -171,27 +213,38 @@ namespace WebcamStream
 
             Response response = new Response();
 
-            byte[] b = new byte[4];
+            byte[] check = new byte[packetSize];
+            s.Receive(check);
+
+
+            Console.WriteLine("STARTCHECK" + BitConverter.ToInt32(check, 0));
+            if (BitConverter.ToInt32(check, 0) != 13371337) return null;
+
+            byte[] b = new byte[packetSize];
             s.Receive(b);
 
+            Console.WriteLine("MSGLEN" + BitConverter.ToInt32(b, 0));
             if (BitConverter.ToInt32(b, 0) == -1) return null;
-            
-            byte[] type = new byte[4];
+
+            byte[] type = new byte[packetSize];
             s.Receive(type);
 
+            Console.WriteLine("TYPE" + BitConverter.ToInt32(b, 0));
             if (BitConverter.ToInt32(type, 0) == -1) return null;
 
-            //output.AppendText("got response with type " + BitConverter.ToInt32(type, 0).ToString() + "\n");
+            if (BitConverter.ToInt32(type, 0) == 1)
+            {
 
-            if (BitConverter.ToInt32(type, 0) == 1) {
+                Console.WriteLine("IS IMAGE");
 
                 Bitmap image;
 
                 int dataLen = BitConverter.ToInt32(b, 0);
 
-                byte[] img = new byte[dataLen];
+                byte[] img = new byte[packetSize];
                 s.Receive(img);
 
+                Console.WriteLine("IMGDATA" + BitConverter.ToInt32(img, 0));
                 if (BitConverter.ToInt32(img, 0) == -1) return null;
 
                 using (var ms = new MemoryStream(img))
@@ -203,13 +256,15 @@ namespace WebcamStream
                 response.type = 1;
 
             }
-            else
+            else if (BitConverter.ToInt32(type, 0) == 0)
             {
+                Console.WriteLine("IS TEXT");
                 int dataLen = BitConverter.ToInt32(b, 0);
 
-                byte[] text = new byte[dataLen];
+                byte[] text = new byte[packetSize];
                 s.Receive(text);
 
+                Console.WriteLine("TEXT" + BitConverter.ToInt32(text, 0));
                 if (BitConverter.ToInt32(text, 0) == -1) return null;
 
                 String rcv = "";
@@ -218,6 +273,11 @@ namespace WebcamStream
 
                 response.text = rcv;
                 response.type = 0;
+            }
+            else
+            {
+                Console.WriteLine("IS ERROR");
+                return null;
             }
 
             return response;
@@ -229,16 +289,24 @@ namespace WebcamStream
 
             if (text == "") return;
             ASCIIEncoding asen = new ASCIIEncoding();
-            
+
             byte[] bytes = asen.GetBytes(text);
-            byte[] type = BitConverter.GetBytes((Int32) 0);
+            System.Array.Resize(ref bytes, packetSize);
+            byte[] type = BitConverter.GetBytes((Int32)0);
+            System.Array.Resize(ref type, packetSize);
             byte[] userDataLen = BitConverter.GetBytes((Int32)bytes.Length);
+            System.Array.Resize(ref userDataLen, packetSize);
 
-            s.Send(userDataLen);
-            s.Send(type);
-            s.Send(bytes);
+            byte[] check = BitConverter.GetBytes((Int32)13371337);
 
-            output.AppendText("Server: " + text + " \n");
+            System.Array.Resize(ref check, packetSize);
+
+            s.Send(check, packetSize, SocketFlags.None);
+            s.Send(userDataLen, packetSize, SocketFlags.None);
+            s.Send(type, packetSize, SocketFlags.None);
+            s.Send(bytes, packetSize, SocketFlags.None);
+
+            output.AppendText("\n Server: " + text + " \n");
 
         }
 
