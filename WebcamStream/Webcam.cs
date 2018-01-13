@@ -30,6 +30,16 @@ namespace WebcamStream
 
         }
 
+        ~Webcam()
+        {
+            Dispose();
+        }
+
+        public void Dispose()
+        {
+            webCameraControl1.Dispose();
+        }
+
         private class ComboBoxItem
         {
             public ComboBoxItem(WebCameraId id)

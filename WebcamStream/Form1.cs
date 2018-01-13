@@ -8,6 +8,10 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
+using System.Net.NetworkInformation;
+using System.Net;
+using System.Net.Sockets;
+
 namespace WebcamStream
 {
     public partial class Form1 : Form
@@ -15,31 +19,30 @@ namespace WebcamStream
         public Webcam webcam;
         Client client;
         Server server;
+        const int packetSize = 10000;
 
-        bool connected = false;
+        ~Form1()
+        {
+            webcam.Dispose();
+            client.Disconnect();
+            server.Disconnect();
+        }
+
+        public PictureBox getPictureBox()
+        {
+            return pictureBox1;
+        }
         
+        public int getPacketSize()
+        {
+            return packetSize;
+        }
+
         private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
         {
             webcam.changeSource();
         }
-
-        private void button1_Click(object sender, EventArgs e)
-        {
-
-            if(isServer.Checked)
-            {
-                if(server != null) server.Disconnect();
-                server = new Server(address.Text, port.Text, output, this);
-
-            }
-            else
-            {
-                if (client != null) client.Disconnect();
-                client = new Client(address.Text, port.Text, output, this);
-            }
-
-        }
-
+        
         public Form1()
         {
             InitializeComponent();
@@ -58,51 +61,53 @@ namespace WebcamStream
                 output.AppendText("Error loading webcam service " + ex.Message + "\n");
             }
 
+            if (System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable())
+            {
+
+                IPHostEntry host = Dns.GetHostEntry(Dns.GetHostName());
+                IPAddress my_ip = host.AddressList.FirstOrDefault(ip => ip.AddressFamily == AddressFamily.InterNetwork);
+
+                address.Text = my_ip.ToString();
+
+            }
+
         }
         
         private void Form1_FormClosed(object sender, FormClosedEventArgs e)
         {
             webCameraControl1.Dispose();
-
-            if (isServer.Checked)
-            {
-                server.Disconnect();
-            }
-            else
-            {
-                client.Disconnect();
-            }
-
         }
 
-        private void button1_Click_1(object sender, EventArgs e)
-        {
-            this.SendChat();
-        }
-
-        private void textBox1_KeyUp(object sender, KeyEventArgs e)
+        private void connect_Click(object sender, EventArgs e)
         {
 
-            if ((e.KeyCode & Keys.Enter) == Keys.Enter)
-            {
-                this.SendChat();
-            }
+            String port_udp_text = port_udp.Text;
+            int port_udp_int;
 
-        }
-
-        private void SendChat()
-        {
-
-            if(isServer.Checked)
+            try
             {
-                server.SendText(textBox1.Text);
-                textBox1.Text = "";
+
+                port_udp_int = Int32.Parse(port_udp_text);
+                
+                if (isServer.Checked)
+                {
+
+                    server = new Server(address.Text, port_udp_int, output, this);
+
+                }
+                else
+                {
+
+                    client = new Client(address.Text, port_udp_int, output, this);
+
+                }
+
             }
-            else
-            {
-                client.SendText(textBox1.Text);
-                textBox1.Text = "";
+            catch {
+                output.AppendText("Error while parsing connection configuration \n");
+                return;
             }
+            
         }
 
         public Bitmap getImage()
@@ -110,13 +115,52 @@ namespace WebcamStream
             return webcam.GetCurrentImage();
         }
 
-        public void updateImage(Bitmap image)
+        public Bitmap ResizeBitmap(Bitmap sourceBMP, int width, int height)
+        {
+            Bitmap result = new Bitmap(width, height);
+            using (Graphics g = Graphics.FromImage(result))
+                g.DrawImage(sourceBMP, 0, 0, width, height);
+            return result;
+        }
+
+        private void button1_Click(object sender, EventArgs e)
         {
 
-            pictureBox1.Image = image;
-            pictureBox1.SizeMode = PictureBoxSizeMode.Zoom;
+
+            sendChat();   
 
         }
 
+        private void textBox1_KeyDown(object sender, KeyEventArgs e)
+        {
+
+            if((e.KeyCode & Keys.Enter) == Keys.Enter)
+            {
+                sendChat();
+            }
+
+        }
+
+        private void sendChat()
+        {
+            if (isServer.Checked && server != null && server.getConnected())
+            {
+                server.sendText(textBox1.Text);
+                output.AppendText("Server: " + textBox1.Text);
+                output.AppendText("\n");
+                textBox1.Text = "";
+            }
+            else if (!isServer.Checked && client != null && client.getConnected())
+            {
+                client.sendText(textBox1.Text);
+                output.AppendText("Server: " + textBox1.Text);
+                output.AppendText("\n");
+                textBox1.Text = "";
+            }
+            else
+            {
+                output.AppendText("Before send check failed: most likely not connected");
+            }
+        }
     }
 }

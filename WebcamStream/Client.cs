@@ -1,319 +1,177 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Forms;
 using System.Net.Sockets;
 using System.Net;
-using System.IO;
 using System.Threading;
+using System.Windows.Forms;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.IO;
+using System.Text;
+using System.Net.Sockets;
 
 namespace WebcamStream
 {
     class Client
     {
 
-        class Response
-        {
-            public Bitmap image;
-            public string text;
-            public int type;
-        }
-
-        TcpClient tcpclnt;
-        
+        UdpClient udp;
+        Thread t1;
+        Thread t2;
+        bool continue_threads = false;
+        bool connected = false;
 
         string address;
-        string port;
+        int port;
         TextBox output;
         Form1 form;
         Stream stm;
-        const int packetSize = 10000;
+        TcpClient tcpclnt;
 
-        public Client(string address, string port, TextBox output, Form1 form)
+        public bool getConnected()
         {
+            return connected;
+        }
 
-            this.address = address;
-            this.port = port;
-            this.output = output;
-            this.form = form;
-                        
-            tcpclnt = new TcpClient();
-
-            if (port == "")
-            {
-                output.AppendText("\nPlease provide the server port \n");
-                return;
-            }
-
-            if (address == "")
-            {
-                output.AppendText("\nPlease provide the server IP \n");
-                return;
-            }
+        public Client(string address, int port, TextBox output, Form1 form)
+        {
 
             try
             {
 
+                Disconnect();
+
+                this.address = address;
+                this.port = port;
+                this.output = output;
+                this.form = form;
+
+                // UDP Client
+                output.AppendText("Inititializing UDP connection on port " + port.ToString() + "... \n");
+                udp = new UdpClient();
+                continue_threads = true;
+
+                IPEndPoint ep = new IPEndPoint(IPAddress.Parse(address), port); // endpoint where server is listening
+                udp.Connect(ep);
+
+                // TCP Client
+
+                tcpclnt = new TcpClient();
                 output.AppendText("\nConnecting to " + address + "\n");
-                tcpclnt.Connect(address, Int32.Parse(port));
+                tcpclnt.Connect(address, port);
 
                 stm = tcpclnt.GetStream();
-                                
-                ObjectDelegate img = new ObjectDelegate(UpdateImageBox);
 
-                Thread th = new Thread(new ParameterizedThreadStart(WorkThread));
-                //th.Start(del);
-                th.Start(img);
+                connected = true;
 
-            }
-            catch (Exception err)
-            {
-                output.AppendText("\nAn error occured: " + err.ToString() + "\n");
-            }
-
-        }
-
-        private delegate void ObjectDelegate(object obj);
-
-
-        private void UpdateImageBox(object response)
-        {
-            if (form.InvokeRequired)
-            {
-                // slightly different now, as we dont need params
-                // we can just use MethodInvoker
-                ObjectDelegate method = new ObjectDelegate(UpdateImageBox);
-                form.Invoke(method, response);
-                return;
-            }
-
-            Response res = (Response)response;
-
-            if (res == null) return;
-
-            if (res.type == 1)
-            {
-                form.updateImage((Bitmap)res.image);
-            }
-            else if (res.type == 0)
-            {
-                output.AppendText("\n Server: " + res.text + " \n");
-            }
-
-            return;
-
-        }
-
-        private void WorkThread(object obj)
-        {
-            
-            try
-            {
-
-                // ObjectDelegate del = (ObjectDelegate)obj;
-                ObjectDelegate img = (ObjectDelegate)obj;
-
-                while (true)
+                // UDP THREAD
+                t1 = new Thread(() =>
                 {
-                    if (stm == null) continue;
 
-                    this.SendImage();
-                    Response image = this.ReceiveImage();
-
-                    if (image != null)
+                    while (continue_threads)
                     {
-                        Console.WriteLine("Image not null");
-                        img.Invoke(image);
+                        byte[] bytes;
+                        Bitmap image = form.getImage();
+
+                        using (MemoryStream ms = new MemoryStream())
+                        {
+                            image.Save(ms, ImageFormat.Jpeg);
+                            bytes = ms.ToArray();
+                        }
+
+                        udp.Send(bytes, bytes.Length); // reply back
+                        
+                        var receivedData = udp.Receive(ref ep);
+                        
+                        using (var ms = new MemoryStream(receivedData))
+                        {
+                            image = new Bitmap(ms);
+                        }
+
+                        form.getPictureBox().Image = form.ResizeBitmap(image, 450, 253);
+
+                        //output.AppendText("receive data from " + ep.ToString() + "\n");
                     }
-                    else
+
+                    if (!continue_threads)
                     {
-                        Console.WriteLine("Image null");
+                        output.AppendText("UDP processing thread stopped \n");
+                    }
+
+                });
+                t1.Start();
+
+                // TCP THREAD
+
+                t2 = new Thread(() =>
+                {
+
+                    while (continue_threads)
+                    {
+
+                        byte[] text = new byte[form.getPacketSize()];
+                        stm.Read(text, 0, form.getPacketSize());
+
+                        String rcv = "";
+                        for (int i = 0; i < text.Length; i++)
+                            rcv += Convert.ToChar(text[i]);
+
+                        output.AppendText("Server: " + rcv);
+                        output.AppendText("\n");
                         
                     }
 
-                    Thread.Sleep(500);
+                    if (!continue_threads)
+                    {
+                        output.AppendText("UDP processing thread stopped \n");
+                    }
 
-                }
-
+                });
+                t2.Start();
 
             }
             catch (Exception e)
             {
-                Console.WriteLine("unexpected client error while receiving data \n" + e.Message + "\n");
-
-                //byte[] err = BitConverter.GetBytes(-1);
-                //stm.Write(err, 0, err.Length);
-                Thread.Sleep(500);
-                this.WorkThread(null);
+                output.AppendText("Error while initializing connection: " + e.Message + "\n");
+                connected = false;
             }
 
         }
 
-        private static Bitmap ResizeBitmap(Bitmap sourceBMP, int width, int height)
-        {
-            Bitmap result = new Bitmap(width, height);
-            using (Graphics g = Graphics.FromImage(result))
-                g.DrawImage(sourceBMP, 0, 0, width, height);
-            return result;
-        }
-
-        private void SendImage()
+        public void sendText(string text)
         {
 
-            Bitmap image = form.getImage();
-            image = ResizeBitmap(image, 320, 240);
+            if (text == "") return;
+            ASCIIEncoding asen = new ASCIIEncoding();
 
-            byte[] check = BitConverter.GetBytes((Int32)13371337);
-            byte[] bytes;
-
-            using (MemoryStream ms = new MemoryStream())
-            {
-                image.Save(ms, ImageFormat.Jpeg);
-                bytes = ms.ToArray();
-            }
-
-
-            byte[] userDataLen = BitConverter.GetBytes((Int32)bytes.Length);
-            byte[] userDatType = BitConverter.GetBytes((Int32) 1 );
-
-            Console.WriteLine("WEBCAM LENGTH " + bytes.Length);
-
-            System.Array.Resize(ref check, packetSize);
+            int packetSize = form.getPacketSize();
+            byte[] bytes = asen.GetBytes(text);
             System.Array.Resize(ref bytes, packetSize);
-            System.Array.Resize(ref userDataLen, packetSize);
-            System.Array.Resize(ref userDatType, packetSize);
 
-            stm.Write( check, 0, packetSize);
-            stm.Write(userDataLen, 0, packetSize);
-            stm.Write(userDatType, 0, packetSize);
             stm.Write(bytes, 0, packetSize);
 
         }
 
         public void Disconnect()
         {
-            if(tcpclnt.Connected) { 
-                stm.Close();
-                stm.Dispose();
-                tcpclnt.Close();
-                tcpclnt.Dispose();
-            }
-        }
-
-        private Response ReceiveImage()
-        {
-
-            Response response = new Response();
-
-            byte[] check = new byte[packetSize];
-            System.Array.Resize(ref check, packetSize);
-            stm.Read(check, 0, packetSize);
-
-            Console.WriteLine("STARTCHECK" + BitConverter.ToInt32(check, 0));
-            if (BitConverter.ToInt32(check, 0) != 13371337) return null;
-
-            byte[] readMsgLen = new byte[packetSize];
-            stm.Read(readMsgLen, 0, packetSize);
-
-            Int32 msgLen = BitConverter.ToInt32(readMsgLen, 0);
-
-            Console.WriteLine("MSGLEN" + BitConverter.ToInt32(readMsgLen, 0));
-            if (BitConverter.ToInt32(readMsgLen, 0) == -1) return null;
-
-            byte[] type = new byte[packetSize];
-            stm.Read(type, 0, packetSize);
-
-            Console.WriteLine("type" + BitConverter.ToInt32(type, 0));
-            if (BitConverter.ToInt32(type, 0) == -1) return null;
             
-            if (BitConverter.ToInt32(type, 0) == 1)
-            {
-                Console.WriteLine("IS Image");
-                Bitmap image;
+            continue_threads = false;
+            if (t1 != null) t1.Join();
+            if (t2 != null) t2.Join();
 
-                int dataLen = BitConverter.ToInt32(readMsgLen, 0);
+            connected = false;
 
-                byte[] readMsgData = new byte[packetSize];
-                stm.Read(readMsgData, 0, packetSize);
+            if (stm != null) stm.Dispose();
+            if (tcpclnt != null) tcpclnt.Dispose();
+            if (udp != null) udp.Dispose();
 
-                Console.WriteLine("MsgData" + BitConverter.ToInt32(readMsgLen, 0));
-                if (BitConverter.ToInt32(readMsgData, 0) == -1 ) return null;
-
-                Array.Resize(ref readMsgData, dataLen);
-
-                using (var ms = new MemoryStream(readMsgData))
-                {
-                    image = new Bitmap(ms);
-                }
-
-                response.image = image;
-                response.type = 1;
-
-            }
-            else if( BitConverter.ToInt32(type, 0) == 0 )
-            {
-                Console.WriteLine("IS Text");
-                int dataLen = BitConverter.ToInt32(readMsgLen, 0);
-
-                byte[] text = new byte[packetSize];
-                stm.Read(text, 0, packetSize);
-
-                Array.Resize(ref text, dataLen);
-
-                Console.WriteLine("text " + BitConverter.ToInt32(text, 0));
-                if (BitConverter.ToInt32(text, 0) == -1) return null;
-
-                String rcv = "";
-                for (int i = 0; i < text.Length; i++)
-                    rcv += Convert.ToChar(text[i]);
-
-                response.text = rcv;
-                response.type = 0;
-            }
-            else
-            {
-                Console.WriteLine("IS ERROR");
-                return null;
-            }
-            
-
-            return response;
-        }
-
-        public void SendText(string text)
-        {
-
-            if (text == "") return;
-
-            ASCIIEncoding asen = new ASCIIEncoding();
-            byte[] bytes = asen.GetBytes(text);
-            System.Array.Resize(ref bytes, packetSize);
-            byte[] userDataLen = BitConverter.GetBytes((Int32)bytes.Length);
-            System.Array.Resize(ref userDataLen, packetSize);
-            byte[] userDataType = BitConverter.GetBytes( (Int32) 0 );
-            System.Array.Resize(ref userDataType, packetSize);
-
-            byte[] check = BitConverter.GetBytes((Int32)13371337);
-            System.Array.Resize(ref check, packetSize);
-
-            stm.Write(check, 0, packetSize);
-            stm.Write(userDataLen, 0, packetSize);
-            stm.Write(userDataType, 0, packetSize);
-            stm.Write(bytes, 0, packetSize);
-
-            output.AppendText("\n Client: " + text + " \n");
+            connected = false;
 
         }
 
         ~Client()
         {
-            tcpclnt.Dispose();
+            Disconnect();
         }
-
 
     }
 }
