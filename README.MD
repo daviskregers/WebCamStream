@@ -1,4 +1,4 @@
-# Stream webcam over TCP bidirectionally
+# Stream webcam over UDP and text chat over TCP bidirectionally
 
 Written for an a course work assignment in "Graphics in client-server environment"
 
